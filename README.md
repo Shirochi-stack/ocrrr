@@ -1,6 +1,6 @@
 # ocrrr
 
-Batch OCR images to structured text using cloud and local vision models. Built for book fans converting screenshots to HTML and EPUB.
+Batch OCR images to structured text using cloud and local vision models. Optimized for novel consoomers.
 
 ## Features
 
@@ -30,7 +30,7 @@ Batch OCR images to structured text using cloud and local vision models. Built f
 ## Installation
 
 ```bash
-git clone git@codeberg.org:YOUR_USERNAME/ocrrr.git
+git clone https://codeberg.org/laotzi/ocrrr.git
 cd ocrrr
 python3 -m venv venv
 source venv/bin/activate        # Linux/macOS
