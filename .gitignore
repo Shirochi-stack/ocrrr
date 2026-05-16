@@ -19,6 +19,7 @@ debug_chunks/
 # Output files
 *.html
 *.txt
+!requirements.txt
 *.epub
 progress.json
 
