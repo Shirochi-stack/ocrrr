@@ -91,7 +91,7 @@ class PipelineConfig:
     chunks_dir_name: str = "OCR Chunks"
     ocr_results_dir_name: str = "OCR Results"
     use_existing_chunks: bool = False
-    default_ocr_model: str = "gemini-3.1-flash-lite-preview"
+    default_ocr_model: str = "gemini-3.1-flash-lite"
     google_cloud_vision_model: str = "google-cloud-vision"
 
     # LM Studio / local endpoints
@@ -129,6 +129,11 @@ _chunk_truncated: dict[str, int] = {}      # chunk_path → retry count
 _chunk_meta: dict[str, tuple[str, int, int]] = {}  # chunk_path → (source_image, y0, y1)
 
 
+def _reset_chunk_state():
+    _chunk_truncated.clear()
+    _chunk_meta.clear()
+
+
 def _handle_sigint(sig, frame):
     global _shutdown
     print("\n[!] Interrupt received; finishing in-flight requests then exiting cleanly.")
@@ -151,6 +156,25 @@ def _percentile_from_histogram(histogram: list[int], percentile: float) -> float
         if seen >= target:
             return float(value)
     return 255.0
+
+
+def _foreground_classifier(histogram: list[int], low: float | None = None, high: float | None = None) -> tuple[float, bool] | None:
+    """Returns (threshold, dark_is_foreground) or None if contrast too low."""
+    if low is None:
+        low = _percentile_from_histogram(histogram, 0.05)
+    if high is None:
+        high = _percentile_from_histogram(histogram, 0.95)
+    med = _percentile_from_histogram(histogram, 0.50)
+    contrast = high - low
+    if contrast < 18:
+        return None
+
+    if med >= 128:
+        threshold = min(245.0, low + max(25.0, contrast * 0.35))
+        return (threshold, True)
+    else:
+        threshold = max(10.0, high - max(25.0, contrast * 0.35))
+        return (threshold, False)
 
 
 def _row_foreground_counts(img: Image.Image) -> list[int]:
@@ -180,27 +204,19 @@ def _row_foreground_counts(img: Image.Image) -> list[int]:
 
     gray = img.convert("L")
     histogram = gray.histogram()
-    low = _percentile_from_histogram(histogram, 0.05)
-    high = _percentile_from_histogram(histogram, 0.95)
-    med = _percentile_from_histogram(histogram, 0.50)
-    contrast = high - low
-    if contrast < 18:
+    classifier = _foreground_classifier(histogram)
+    if classifier is None:
         return [w] * h
 
-    if med >= 128:
-        threshold = min(245.0, low + max(25.0, contrast * 0.35))
-        def is_foreground(value: int) -> bool:
-            return value <= threshold
-    else:
-        threshold = max(10.0, high - max(25.0, contrast * 0.35))
-        def is_foreground(value: int) -> bool:
-            return value >= threshold
-
+    threshold, dark_is_foreground = classifier
     raw = gray.tobytes()
     counts = []
     for y in range(h):
         row = raw[y * w:(y + 1) * w]
-        counts.append(sum(1 for value in row if is_foreground(value)))
+        if dark_is_foreground:
+            counts.append(sum(1 for value in row if value <= threshold))
+        else:
+            counts.append(sum(1 for value in row if value >= threshold))
     return counts
 
 
@@ -231,24 +247,18 @@ def _likely_ocr_foreground_pixels(img: Image.Image) -> int:
 
     gray = img.convert("L")
     histogram = gray.histogram()
-    low = _percentile_from_histogram(histogram, 0.05)
-    high = _percentile_from_histogram(histogram, 0.95)
-    med = _percentile_from_histogram(histogram, 0.50)
-    observed_low = next((value for value, count in enumerate(histogram) if count), 0)
-    observed_high = next((value for value in range(255, -1, -1) if histogram[value]), 255)
-    contrast = high - low
-    if contrast < 18:
-        low = float(observed_low)
-        high = float(observed_high)
-        contrast = high - low
-        if contrast < 18:
+    classifier = _foreground_classifier(histogram)
+
+    if classifier is None:
+        observed_low = next((value for value, count in enumerate(histogram) if count), 0)
+        observed_high = next((value for value in range(255, -1, -1) if histogram[value]), 255)
+        classifier = _foreground_classifier(histogram, low=float(observed_low), high=float(observed_high))
+        if classifier is None:
             return 0
 
-    if med >= 128:
-        threshold = min(245.0, low + max(25.0, contrast * 0.35))
+    threshold, dark_is_foreground = classifier
+    if dark_is_foreground:
         return sum(1 for value in gray.tobytes() if value <= threshold)
-
-    threshold = max(10.0, high - max(25.0, contrast * 0.35))
     return sum(1 for value in gray.tobytes() if value >= threshold)
 
 
@@ -1385,6 +1395,7 @@ def process_image(
     job_name: str = "",
 ) -> None:
     base = os.path.splitext(os.path.basename(image_path))[0]
+    _reset_chunk_state()
     print(f"\n-> {base}")
 
     chunk_dir = _image_chunks_dir(output_dir, job_name, base) if job_name else os.path.join(output_dir, f".{base}_chunks")
@@ -1677,6 +1688,7 @@ def main():
         help="Export EPUB after processing all images.",
     )
     args = parser.parse_args()
+    _reset_chunk_state()
 
     # Populate config from CLI args
     _config.skip_pinyin_lines = bool(args.skip_pinyin)

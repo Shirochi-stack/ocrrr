@@ -86,7 +86,7 @@ python ocr_pipeline.py ./screenshots --model ollama/llama3.2-vision
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--model` | `gemini-3.1-flash-lite-preview` | OCR model name |
+| `--model` | `gemini-3.1-flash-lite` | OCR model name |
 | `--api-key` | — | API key for cloud providers |
 | `--base-url` | — | Custom OpenAI-compatible endpoint |
 | `--batch-size` | `4` | Parallel API request slots |
