@@ -26,4 +26,7 @@ progress.json
 # PyInstaller
 build/
 dist/
+_internal/
+*.exe
+*.zip
 *.spec.bak

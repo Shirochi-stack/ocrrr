@@ -22,10 +22,10 @@ jobs:
 
       - run: pip install -r requirements.txt pyinstaller
 
-      - run: pyinstaller ocrrr.spec
+      - run: pyinstaller --clean --noconfirm ocrrr.spec
 
       - uses: actions/upload-artifact@v4
         with:
           name: ocrrr-windows
-          path: dist/ocrrr/
+          path: dist/ocrrr.exe
           if-no-files-found: error
